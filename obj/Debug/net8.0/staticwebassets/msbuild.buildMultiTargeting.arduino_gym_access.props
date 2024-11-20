@@ -1,0 +1,3 @@
+﻿<Project>
+  <Import Project="..\build\arduino_gym_access.props" />
+</Project>
