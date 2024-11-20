@@ -1,19 +1,35 @@
-# Progetto Gestione Accessi 
-> Obiettivo: creare un sistema (simulato) che gestisca gli accessi ad un edificio.
+Progetto Gestione Accessi - Nuova Specifica
 
-## Componenti previsti:
-- Lettore RFID
-- 1x Led RGB
-- 1x Sensore PIR
-- 1x Servomotore
-- 1x Buzzer
-- 3x Arduino ("Mega2560")
-- Software Vario
+    Obiettivo: creare una piattaforma per il monitoraggio e la gestione degli accessi a un edificio.
 
-## Spiegazione del Progetto
-Il progetto consiste nel rappresentare la gestione degli accessi ad un edificio. Si ipotizza quindi che all'ingresso dell'edificio venga posto un **lettore RFID**, in modo da poter avere uno storico degli accessi ed evitare accessi non autotizzati.  
-Ci sarà quindi un **LED (RGB)** che si illuminerà di <span style="color: lightgreen;">verde</span> ogni volta che verrà autorizzato un ingresso, mentre lampeggerà di <span style="color: red;">rosso</span> se si tenta di accedere con un 'token' non presente nel database.  
+Componenti previsti
 
-Il **servomotore** simulerà l'apertura della porta / cancello in ingresso, quindi un **sensore PIR** posto all'interno dell'edificio rileverà il passaggio della persona e procederà a bloccare la porta.  
+    Lettore RFID per identificare gli utenti
+    1x Led RGB per indicazioni visive dello stato di accesso
+    1x Sensore PIR per il rilevamento della presenza (opzionale)
+    1x Servomotore per simulare l'apertura della porta/cancello
+    1x Buzzer per segnalazioni acustiche
+    3x Arduino Mega2560 per la gestione delle funzioni hardware
+    Software per il backend e interfaccia web (sviluppata in .NET)
 
-Il sistema rileverà come *"Accesso non autorizzato"* se dovesse essere rilevato del movimento tramite il **sensore PIR** ma non autorizzato all'ingresso e/o non avendo aperto la porta. Partirà dunque il sistema di allarme, facendo lampeggiare di <span style="color: red;">rosso</span> il **LED RGB** e facendo suonare il **buzzer**
+Funzionalità del Sistema
+
+    Monitoraggio degli Accessi:
+        Ogni accesso viene registrato in un log digitale che mostra:
+            Utente: nome associato al token RFID (se disponibile).
+            Codice RFID: identificativo univoco del token.
+            Data e ora: momento esatto dell'accesso.
+
+    Gestione degli Accessi Manuali:
+        Pulsante nell'interfaccia web per aprire manualmente la porta/cancello senza l'uso di un token RFID.
+
+    Indicazioni Visive:
+        LED RGB:
+            Verde: accesso autorizzato.
+            Rosso: accesso negato.
+
+    Simulazione Apertura Porta:
+        Servomotore: attivato solo per gli accessi autorizzati.
+
+    Registro degli Accessi:
+        Piattaforma per visualizzare e filtrare lo storico degli accessi con opzioni di ricerca avanzata.
