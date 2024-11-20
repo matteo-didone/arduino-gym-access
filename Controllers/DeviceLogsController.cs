@@ -1,3 +1,4 @@
+#nullable enable
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ArduinoGymAccess.Data;
@@ -33,7 +34,7 @@ namespace ArduinoGymAccess.Controllers
                 var query = _context.DeviceLogs
                     .Include(dl => dl.Device)
                     .Include(dl => dl.RfidToken)
-                        .ThenInclude(rt => rt.User)
+                    .ThenInclude(rt => rt.User)
                     .AsQueryable();
 
                 // Filtri temporali
@@ -187,7 +188,7 @@ namespace ArduinoGymAccess.Controllers
                 }
 
                 // Verifica del token RFID se fornito
-                RfidToken? rfidToken = null;
+                RfidToken rfidToken = null;
                 if (!string.IsNullOrEmpty(request.RfidCode))
                 {
                     rfidToken = await _context.RfidTokens
@@ -212,15 +213,8 @@ namespace ArduinoGymAccess.Controllers
                     {
                         RfidTokenId = rfidToken.Id,
                         AccessTime = deviceLog.LogTime,
-                        IsGranted = rfidToken.IsActive && rfidToken.User.IsActive,
-                        AccessStatus = rfidToken.IsActive && rfidToken.User.IsActive 
-                            ? AccessStatus.AUTHORIZED 
-                            : AccessStatus.UNAUTHORIZED,
-                        DeniedReason = !rfidToken.IsActive 
-                            ? "Inactive RFID token" 
-                            : !rfidToken.User.IsActive 
-                                ? "Inactive user" 
-                                : null
+                        AccessStatus = AccessStatus.AUTHORIZED,
+                        IsGranted = true
                     };
 
                     _context.AccessLogs.Add(accessLog);
@@ -292,14 +286,17 @@ namespace ArduinoGymAccess.Controllers
 
                 // Statistiche giornaliere
                 var dailyStats = await query
-                    .GroupBy(dl => EF.Functions.DatePart("weekday", dl.LogTime))
+                    .GroupBy(dl => dl.LogTime.DayOfWeek)
                     .Select(g => new
                     {
                         DayOfWeek = g.Key,
                         TotalLogs = g.Count()
                     })
-                    .OrderBy(x => x.DayOfWeek)
+                    .OrderBy(g => g.DayOfWeek)
                     .ToListAsync();
+
+                var minTime = await query.MinAsync(dl => dl.LogTime);
+                var maxTime = await query.MaxAsync(dl => dl.LogTime);
 
                 return Ok(new
                 {
@@ -314,8 +311,8 @@ namespace ArduinoGymAccess.Controllers
                             .CountAsync(),
                         Period = new
                         {
-                            From = from ?? await query.Min(dl => dl.LogTime),
-                            To = to ?? await query.Max(dl => dl.LogTime)
+                            From = from ?? minTime,
+                            To = to ?? maxTime
                         }
                     },
                     DeviceStatistics = deviceStats,

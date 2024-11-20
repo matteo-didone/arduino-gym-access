@@ -205,7 +205,7 @@ namespace ArduinoGymAccess.Controllers
 
                 // Statistiche per giorno della settimana
                 var accessesByDayOfWeek = await query
-                    .GroupBy(al => EF.Functions.DatePart("weekday", al.AccessTime))
+                    .GroupBy(al => al.AccessTime.DayOfWeek)
                     .Select(g => new
                     {
                         DayOfWeek = g.Key,
@@ -241,8 +241,8 @@ namespace ArduinoGymAccess.Controllers
                         UniqueUsers = uniqueUsers,
                         Period = new
                         {
-                            From = from ?? await query.Min(al => al.AccessTime),
-                            To = to ?? await query.Max(al => al.AccessTime)
+                            From = from ?? await query.MinAsync(al => al.AccessTime),
+                            To = to ?? await query.MaxAsync(al => al.AccessTime)
                         }
                     },
                     AccessesByHour = accessesByHour,
@@ -272,13 +272,15 @@ namespace ArduinoGymAccess.Controllers
                 {
                     _context.AccessLogs.RemoveRange(oldLogs);
                     await _context.SaveChangesAsync();
-                    return Ok(new { 
+                    return Ok(new
+                    {
                         DeletedCount = oldLogs.Count,
                         Message = $"Successfully deleted {oldLogs.Count} logs older than {cutoffDate}"
                     });
                 }
 
-                return Ok(new { 
+                return Ok(new
+                {
                     DeletedCount = 0,
                     Message = "No logs found to delete"
                 });
