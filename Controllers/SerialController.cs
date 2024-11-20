@@ -1,5 +1,6 @@
 using System.IO.Ports;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using ArduinoGymAccess.Data;
 using ArduinoGymAccess.Models;
 
