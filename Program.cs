@@ -1,23 +1,24 @@
 using ArduinoGymAccess.Data;
-using ArduinoGymAccess.Models;      // Per SerialPortSettings
-using ArduinoGymAccess.Services;    // Per SerialPortManager
+using ArduinoGymAccess.Models;
+using ArduinoGymAccess.Services;
 using Microsoft.EntityFrameworkCore;
-using System.Text.Json.Serialization; // Per ReferenceHandler.IgnoreCycles
+using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Aggiungi servizi al contenitore
+// Configuriamo i controller con la gestione delle referenze cicliche nei JSON
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
-        options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
+        // Questo impedisce errori quando gli oggetti JSON hanno riferimenti circolari
+        options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
     });
 
-// Aggiungi Swagger
+// Aggiungiamo il supporto per la documentazione API tramite Swagger
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// Aggiungi CORS se necessario
+// Configuriamo CORS per permettere richieste da altri domini
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll",
@@ -29,8 +30,8 @@ builder.Services.AddCors(options =>
         });
 });
 
-// Aggiungi DbContext
-builder.Services.AddDbContext<AppDbContext>(options =>
+// Configuriamo il factory di DbContext con pooling per gestire efficacemente le connessioni
+builder.Services.AddPooledDbContextFactory<AppDbContext>(options =>
     options.UseMySql(
         builder.Configuration.GetConnectionString("DefaultConnection"),
         new MySqlServerVersion(new Version(8, 0, 34)),
@@ -38,26 +39,32 @@ builder.Services.AddDbContext<AppDbContext>(options =>
             .EnableRetryOnFailure(
                 maxRetryCount: 3,
                 maxRetryDelay: TimeSpan.FromSeconds(5),
-                errorNumbersToAdd: null)
+                errorNumbersToAdd: null
+            )
     )
 );
 
-// Configurazione SerialPort
-builder.Services.Configure<SerialPortSettings>(builder.Configuration.GetSection("SerialPort"));
+// Configuriamo i servizi necessari per la comunicazione con Arduino
+builder.Services.Configure<SerialPortSettings>(
+    builder.Configuration.GetSection("SerialPort")
+);
 builder.Services.AddSingleton<SerialPortManager>();
 
+// Creiamo l'applicazione
 var app = builder.Build();
 
-// Configura la pipeline delle richieste HTTP
+// In ambiente di sviluppo, attiviamo Swagger
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
 }
 
+// Configuriamo il pipeline HTTP
 app.UseCors("AllowAll");
 app.UseHttpsRedirection();
 app.UseAuthorization();
 app.MapControllers();
 
+// Avviamo l'applicazione
 app.Run();
