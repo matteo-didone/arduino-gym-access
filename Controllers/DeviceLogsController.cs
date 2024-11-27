@@ -214,8 +214,9 @@ namespace ArduinoGymAccess.Controllers
                         RfidTokenId = rfidToken.Id,
                         AccessTime = deviceLog.LogTime,
                         AccessStatus = AccessStatus.AUTHORIZED,
-                        IsGranted = true
+                        IsGranted = true,
                     };
+
 
                     _context.AccessLogs.Add(accessLog);
                     await _context.SaveChangesAsync();

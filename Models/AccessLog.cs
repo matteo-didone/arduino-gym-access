@@ -22,19 +22,23 @@ namespace ArduinoGymAccess.Models
         public DateTime AccessTime { get; set; } = DateTime.UtcNow;
 
         // Nuovi campi necessari per i controller
-        [NotMapped]
+        [Column("is_granted")] // Assicurati che ci sia una colonna "is_granted" nella tabella
         public bool IsGranted { get; set; }
 
-        [NotMapped]
+        [Column("denied_reason")]
         public string? DeniedReason { get; set; }
 
         [ForeignKey("RfidTokenId")]
         public virtual RfidToken RfidToken { get; set; } = null!;
     }
 
-    public enum AccessStatus
+   public enum AccessStatus
     {
-        AUTHORIZED,
-        UNAUTHORIZED
+        GRANTED,    // Mappato dal database come 'Granted'
+        DENIED,     // Mappato dal database come 'Denied'
+        AUTHORIZED, // Nuovo valore
+        UNAUTHORIZED // Nuovo valore
     }
+
+
 }
