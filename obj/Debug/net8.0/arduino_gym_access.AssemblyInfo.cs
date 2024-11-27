@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("arduino_gym_access")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+b84d082b6ed1b86da7fc52a670152068c9530289")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+307421a46f3dff3348d41abb909907708fedb0a1")]
 [assembly: System.Reflection.AssemblyProductAttribute("arduino_gym_access")]
 [assembly: System.Reflection.AssemblyTitleAttribute("arduino_gym_access")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

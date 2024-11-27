@@ -1,69 +1,58 @@
-using System.IO.Ports;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using ArduinoGymAccess.Data;
 using ArduinoGymAccess.Models;
+using ArduinoGymAccess.Services;
+using Microsoft.EntityFrameworkCore;
 
 namespace ArduinoGymAccess.Controllers
 {
+    /// <summary>
+    /// Controller per la gestione della comunicazione seriale con Arduino
+    /// </summary>
     [ApiController]
     [Route("api/[controller]")]
     public class SerialController : ControllerBase
     {
         private readonly AppDbContext _context;
         private readonly ILogger<SerialController> _logger;
-        private static SerialPort _serialPort;
+        private readonly SerialPortManager _serialPortManager;
 
-        public SerialController(AppDbContext context, ILogger<SerialController> logger)
+        /// <summary>
+        /// Costruttore che inizializza il controller con le sue dipendenze
+        /// </summary>
+        public SerialController(
+            AppDbContext context,
+            ILogger<SerialController> logger,
+            SerialPortManager serialPortManager)
         {
             _context = context;
             _logger = logger;
+            _serialPortManager = serialPortManager;
 
-            if (_serialPort == null || !_serialPort.IsOpen)
-            {
-                InitializeSerialPort();
-            }
+            // Registriamo il gestore eventi per i dati in arrivo dalla porta seriale
+            _serialPortManager.DataReceived += HandleDataReceived;
         }
 
-        private void InitializeSerialPort()
+        /// <summary>
+        /// Gestisce i dati ricevuti dalla porta seriale
+        /// Verifica il token RFID e registra l'accesso nel database
+        /// </summary>
+        private async void HandleDataReceived(object sender, string data)
         {
             try
             {
-                _serialPort = new SerialPort()
-                {
-                    PortName = "COM3", // Modifica con la tua porta
-                    BaudRate = 9600,
-                    DataBits = 8,
-                    Parity = Parity.None,
-                    StopBits = StopBits.One
-                };
-
-                _serialPort.DataReceived += SerialPort_DataReceived;
-                _serialPort.Open();
-                _logger.LogInformation("Porta seriale aperta con successo");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Errore nell'apertura della porta seriale");
-            }
-        }
-
-        private async void SerialPort_DataReceived(object sender, SerialDataReceivedEventArgs e)
-        {
-            try
-            {
-                string data = _serialPort.ReadLine().Trim();
                 _logger.LogInformation($"Dati ricevuti: {data}");
 
-                // Verifica il token RFID
+                // Cerchiamo il token RFID nel database, includendo i dati dell'utente associato
                 var rfidToken = await _context.RfidTokens
                     .Include(rt => rt.User)
                     .FirstOrDefaultAsync(rt => rt.RfidCode == data);
 
+                // Verifichiamo che sia il token che l'utente siano attivi
                 bool isGranted = rfidToken?.IsActive == true && rfidToken.User.IsActive == true;
                 string response = isGranted ? "A" : "N"; // A = Accesso consentito, N = Negato
 
-                // Log dell'accesso
+                // Se il token esiste (anche se non attivo), registriamo il tentativo di accesso
                 if (rfidToken != null)
                 {
                     var accessLog = new AccessLog
@@ -78,8 +67,8 @@ namespace ArduinoGymAccess.Controllers
                     await _context.SaveChangesAsync();
                 }
 
-                // Invia risposta ad Arduino
-                _serialPort.WriteLine(response);
+                // Inviamo la risposta ad Arduino
+                _serialPortManager.SendData(response);
             }
             catch (Exception ex)
             {
@@ -87,35 +76,29 @@ namespace ArduinoGymAccess.Controllers
             }
         }
 
+        /// <summary>
+        /// Endpoint GET che restituisce l'elenco delle porte seriali disponibili
+        /// </summary>
         [HttpGet("ports")]
         public IActionResult GetAvailablePorts()
         {
-            return Ok(SerialPort.GetPortNames());
+            return Ok(_serialPortManager.GetAvailablePorts());
         }
 
+        /// <summary>
+        /// Endpoint POST per aprire una connessione sulla porta seriale specificata
+        /// </summary>
         [HttpPost("open")]
         public IActionResult OpenPort([FromBody] SerialPortRequest request)
         {
             try
             {
-                if (_serialPort != null && _serialPort.IsOpen)
+                bool success = _serialPortManager.ConnectToPort(request.PortName);
+                if (success)
                 {
-                    _serialPort.Close();
+                    return Ok(new { message = "Porta seriale aperta con successo" });
                 }
-
-                _serialPort = new SerialPort()
-                {
-                    PortName = request.PortName,
-                    BaudRate = request.BaudRate,
-                    DataBits = 8,
-                    Parity = Parity.None,
-                    StopBits = StopBits.One
-                };
-
-                _serialPort.DataReceived += SerialPort_DataReceived;
-                _serialPort.Open();
-
-                return Ok(new { message = "Porta seriale aperta con successo" });
+                return BadRequest(new { message = "Impossibile aprire la porta seriale" });
             }
             catch (Exception ex)
             {
@@ -123,14 +106,17 @@ namespace ArduinoGymAccess.Controllers
             }
         }
 
+        /// <summary>
+        /// Endpoint POST per chiudere la connessione seriale corrente
+        /// </summary>
         [HttpPost("close")]
         public IActionResult ClosePort()
         {
             try
             {
-                if (_serialPort != null && _serialPort.IsOpen)
+                if (_serialPortManager.IsConnected)
                 {
-                    _serialPort.Close();
+                    _serialPortManager.Dispose();
                     return Ok(new { message = "Porta seriale chiusa con successo" });
                 }
                 return BadRequest(new { message = "La porta seriale è già chiusa" });
@@ -142,9 +128,12 @@ namespace ArduinoGymAccess.Controllers
         }
     }
 
+    /// <summary>
+    /// Classe di richiesta per l'apertura della porta seriale
+    /// </summary>
     public class SerialPortRequest
     {
-        public string PortName { get; set; } = "COM3";
-        public int BaudRate { get; set; } = 9600;
+        public string PortName { get; set; } = "COM5";  // Valore predefinito aggiornato alla porta corretta
+        public int BaudRate { get; set; } = 9600;       // Baud rate standard per la maggior parte delle comunicazioni Arduino
     }
 }

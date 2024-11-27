@@ -1,5 +1,8 @@
 using ArduinoGymAccess.Data;
+using ArduinoGymAccess.Models;      // Per SerialPortSettings
+using ArduinoGymAccess.Services;    // Per SerialPortManager
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json.Serialization; // Per ReferenceHandler.IgnoreCycles
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -38,6 +41,10 @@ builder.Services.AddDbContext<AppDbContext>(options =>
                 errorNumbersToAdd: null)
     )
 );
+
+// Configurazione SerialPort
+builder.Services.Configure<SerialPortSettings>(builder.Configuration.GetSection("SerialPort"));
+builder.Services.AddSingleton<SerialPortManager>();
 
 var app = builder.Build();
 
