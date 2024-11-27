@@ -9,12 +9,12 @@ namespace ArduinoGymAccess.Controllers
     [Route("api/[controller]")]
     public class AccessLogsController : ControllerBase
     {
-        private readonly AppDbContext _context;
+        private readonly IDbContextFactory<AppDbContext> _contextFactory;
         private readonly ILogger<AccessLogsController> _logger;
 
-        public AccessLogsController(AppDbContext context, ILogger<AccessLogsController> logger)
+        public AccessLogsController(IDbContextFactory<AppDbContext> contextFactory, ILogger<AccessLogsController> logger)
         {
-            _context = context;
+            _contextFactory = contextFactory;
             _logger = logger;
         }
 
@@ -30,7 +30,8 @@ namespace ArduinoGymAccess.Controllers
         {
             try
             {
-                var query = _context.AccessLogs
+                using var context = await _contextFactory.CreateDbContextAsync();
+                var query = context.AccessLogs
                     .Include(al => al.RfidToken)
                         .ThenInclude(rt => rt.User)
                     .AsQueryable();
@@ -38,7 +39,7 @@ namespace ArduinoGymAccess.Controllers
                 // Filtri temporali
                 if (from.HasValue)
                     query = query.Where(al => al.AccessTime >= from.Value);
-                
+
                 if (to.HasValue)
                     query = query.Where(al => al.AccessTime <= to.Value);
 
@@ -121,7 +122,8 @@ namespace ArduinoGymAccess.Controllers
         {
             try
             {
-                var log = await _context.AccessLogs
+                using var context = await _contextFactory.CreateDbContextAsync();
+                var log = await context.AccessLogs
                     .Include(al => al.RfidToken)
                         .ThenInclude(rt => rt.User)
                     .Where(al => al.Id == id)
@@ -170,14 +172,15 @@ namespace ArduinoGymAccess.Controllers
         {
             try
             {
-                var query = _context.AccessLogs
+                using var context = await _contextFactory.CreateDbContextAsync();
+                var query = context.AccessLogs
                     .Include(al => al.RfidToken)
                         .ThenInclude(rt => rt.User)
                     .AsQueryable();
 
                 if (from.HasValue)
                     query = query.Where(al => al.AccessTime >= from.Value);
-                
+
                 if (to.HasValue)
                     query = query.Where(al => al.AccessTime <= to.Value);
 
@@ -263,15 +266,16 @@ namespace ArduinoGymAccess.Controllers
         {
             try
             {
+                using var context = await _contextFactory.CreateDbContextAsync();
                 var cutoffDate = DateTime.UtcNow.AddDays(-daysToKeep);
-                var oldLogs = await _context.AccessLogs
+                var oldLogs = await context.AccessLogs
                     .Where(al => al.AccessTime < cutoffDate)
                     .ToListAsync();
 
                 if (oldLogs.Any())
                 {
-                    _context.AccessLogs.RemoveRange(oldLogs);
-                    await _context.SaveChangesAsync();
+                    context.AccessLogs.RemoveRange(oldLogs);
+                    await context.SaveChangesAsync();
                     return Ok(new
                     {
                         DeletedCount = oldLogs.Count,

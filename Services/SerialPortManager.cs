@@ -19,6 +19,7 @@ namespace ArduinoGymAccess.Services
         {
             _settings = settings.Value;
             _logger = logger;
+
             _serialPort = InitializeSerialPort();
             _reconnectTimer = new Timer(TryReconnect, null, Timeout.Infinite, Timeout.Infinite);
 
@@ -37,31 +38,46 @@ namespace ArduinoGymAccess.Services
                 DataBits = _settings.DataBits,
                 Parity = _settings.Parity,
                 StopBits = _settings.StopBits,
-                ReadTimeout = _settings.ReadTimeout,
-                WriteTimeout = _settings.WriteTimeout
+                ReadTimeout = _settings.ReadTimeout > 0 ? _settings.ReadTimeout : 1000,
+                WriteTimeout = _settings.WriteTimeout > 0 ? _settings.WriteTimeout : 500
             };
 
             port.DataReceived += (sender, e) =>
             {
-                if (port.IsOpen)
+                try
                 {
-                    string data = port.ReadLine().Trim();
-                    DataReceived?.Invoke(this, data);
+                    if (port.IsOpen)
+                    {
+                        _logger.LogInformation($"[SerialPortManager] DataReceived event triggered from port: {port.PortName}");
+                        string data = port.ReadLine().Trim();
+                        _logger.LogInformation($"[SerialPortManager] Raw data received: {data}");
+                        DataReceived?.Invoke(this, data);
+                    }
+                }
+                catch (TimeoutException ex)
+                {
+                    _logger.LogWarning(ex, "[SerialPortManager] Timeout reading from serial port");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[SerialPortManager] Error during DataReceived event");
                 }
             };
 
             return port;
         }
 
-        public bool ConnectToPort(string portName)
+        public void ConnectToPort(string portName)
         {
             try
             {
-                if (_serialPort?.IsOpen == true)
+                if (_serialPort?.IsOpen == true && _serialPort.PortName == portName)
                 {
-                    _serialPort.Close();
+                    _logger.LogInformation($"[SerialPortManager] Port {portName} is already open");
+                    return;
                 }
 
+                _serialPort?.Close();
                 _serialPort = InitializeSerialPort();
                 _serialPort.PortName = portName;
                 _serialPort.Open();
@@ -71,21 +87,20 @@ namespace ArduinoGymAccess.Services
                     _reconnectTimer.Change(_settings.ReconnectInterval, _settings.ReconnectInterval);
                 }
 
-                _logger.LogInformation($"Connected to port {portName}");
-                return true;
+                _logger.LogInformation($"[SerialPortManager] Connected to port {portName}");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Failed to connect to port {portName}");
-                return false;
+                _logger.LogError(ex, $"[SerialPortManager] Failed to connect to port {portName}");
             }
         }
+
 
         private void TryReconnect(object? state)
         {
             if (!IsConnected && !_disposed)
             {
-                _logger.LogInformation("Attempting to reconnect...");
+                _logger.LogInformation("[SerialPortManager] Attempting to reconnect...");
                 ConnectToPort(_settings.PortName);
             }
         }
@@ -97,17 +112,22 @@ namespace ArduinoGymAccess.Services
                 if (_serialPort?.IsOpen == true)
                 {
                     _serialPort.WriteLine(data);
-                    _logger.LogInformation($"Data sent: {data}");
+                    _logger.LogInformation($"[SerialPortManager] Data sent: {data}");
+                }
+                else
+                {
+                    _logger.LogWarning("[SerialPortManager] Cannot send data: Serial port is not open");
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error sending data");
+                _logger.LogError(ex, "[SerialPortManager] Error sending data");
             }
         }
 
         public string[] GetAvailablePorts()
         {
+            _logger.LogInformation("[SerialPortManager] Retrieving available ports");
             return SerialPort.GetPortNames();
         }
 

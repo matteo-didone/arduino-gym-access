@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using ArduinoGymAccess.Data;
 using ArduinoGymAccess.Models;
 using ArduinoGymAccess.Services;
+using ArduinoGymAccess.Utilities;
 using System;
 using System.Threading.Tasks;
 using System.Linq;
@@ -11,54 +12,6 @@ using System.Net.Http.Json;
 
 namespace ArduinoGymAccess.Controllers
 {
-    public class SerialDataParser
-    {
-        private const string RFID_PREFIX = "RFID:";
-
-        public class SerialData
-        {
-            public string Type { get; set; } = string.Empty;
-            public string Value { get; set; } = string.Empty;
-            public bool IsValid { get; set; }
-            public string Error { get; set; } = string.Empty;
-        }
-
-        public static SerialData Parse(string rawData)
-        {
-            if (string.IsNullOrWhiteSpace(rawData))
-            {
-                return new SerialData { IsValid = false, Error = "Dati ricevuti vuoti o nulli" };
-            }
-
-            try
-            {
-                if (rawData.StartsWith(RFID_PREFIX))
-                {
-                    string rfidCode = rawData.Substring(RFID_PREFIX.Length).Trim();
-                    return new SerialData
-                    {
-                        Type = "RFID",
-                        Value = rfidCode,
-                        IsValid = IsValidRfidFormat(rfidCode)
-                    };
-                }
-
-                return new SerialData { IsValid = false, Error = "Formato dati non riconosciuto" };
-            }
-            catch (Exception ex)
-            {
-                return new SerialData { IsValid = false, Error = $"Errore nel parsing dei dati: {ex.Message}" };
-            }
-        }
-
-        private static bool IsValidRfidFormat(string rfidCode)
-        {
-            return !string.IsNullOrWhiteSpace(rfidCode) &&
-                   rfidCode.Length >= 8 &&
-                   rfidCode.All(c => char.IsLetterOrDigit(c));
-        }
-    }
-
     [ApiController]
     [Route("api/[controller]")]
     public class SerialController : ControllerBase
@@ -80,34 +33,40 @@ namespace ArduinoGymAccess.Controllers
             _serialPortManager.DataReceived += HandleDataReceived;
         }
 
-        private async void HandleDataReceived(object sender, string data)
+        private async void HandleDataReceived(object? sender, string data)
         {
             try
             {
-                _logger.LogInformation($"Dati ricevuti dalla porta seriale: {data}");
+                _logger.LogInformation($"[HandleDataReceived] Dati ricevuti dalla porta seriale: {data}");
 
                 var parsedData = SerialDataParser.Parse(data);
+                _logger.LogInformation($"[HandleDataReceived] Dati parsati: Tipo={parsedData.Type}, Validi={parsedData.IsValid}, Valore={parsedData.Value}");
 
                 if (!parsedData.IsValid)
                 {
-                    _logger.LogWarning($"Dati non validi ricevuti: {parsedData.Error}");
+                    _logger.LogWarning($"[HandleDataReceived] Dati non validi: {parsedData.Error}");
                     return;
                 }
 
                 if (parsedData.Type == "RFID")
                 {
-                    _logger.LogInformation($"RFID valido ricevuto: {parsedData.Value}");
-                    await HandleRfidData(parsedData.Value); // Gestisci i dati ricevuti
-                    await SendRfidDataToApi(parsedData.Value); // Invia i dati al backend
+                    _logger.LogInformation($"[HandleDataReceived] Inizio gestione del codice RFID: {parsedData.Value}");
+                    var (isGranted, userName) = await HandleRfidData(parsedData.Value);
+
+                    _logger.LogInformation(
+                        "[HandleDataReceived] Risultato verifica RFID: Accesso {Status} per {User}",
+                        isGranted ? "AUTORIZZATO" : "NON AUTORIZZATO",
+                        userName
+                    );
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Errore durante la gestione dei dati seriali: {ex.Message}");
+                _logger.LogError($"[HandleDataReceived] Errore durante la gestione dei dati seriali: {ex.Message}");
             }
         }
 
-        private async Task HandleRfidData(string rfidCode)
+        private async Task<(bool isGranted, string userName)> HandleRfidData(string rfidCode)
         {
             try
             {
@@ -117,10 +76,11 @@ namespace ArduinoGymAccess.Controllers
                     .Include(rt => rt.User)
                     .FirstOrDefaultAsync(rt => rt.RfidCode == rfidCode);
 
-                bool isGranted = rfidToken?.IsActive == true && rfidToken.User.IsActive == true;
-
                 if (rfidToken != null)
                 {
+                    bool isGranted = rfidToken.IsActive && (rfidToken.User?.IsActive ?? false);
+                    string userName = rfidToken.User?.Name ?? "Sconosciuto";
+
                     var accessLog = new AccessLog
                     {
                         RfidTokenId = rfidToken.Id,
@@ -133,78 +93,104 @@ namespace ArduinoGymAccess.Controllers
                     await context.SaveChangesAsync();
 
                     _logger.LogInformation(
-                        "Tentativo di accesso: Utente={User}, Autorizzato={IsGranted}",
-                        rfidToken.User.Name,
-                        isGranted);
+                        "[HandleRfidData] Accesso {Status} per utente {User}",
+                        isGranted ? "AUTORIZZATO" : "NON AUTORIZZATO",
+                        userName
+                    );
+
+                    _serialPortManager.SendData(isGranted ? "A" : "N");
+
+                    return (isGranted, userName);
                 }
                 else
                 {
-                    _logger.LogWarning($"Tentativo di accesso con token sconosciuto: {rfidCode}");
+                    _logger.LogWarning($"[HandleRfidData] Token sconosciuto: {rfidCode}");
+                    _serialPortManager.SendData("N");
+                    return (false, "Token non riconosciuto");
                 }
-
-                _serialPortManager.SendData(isGranted ? "A" : "N");
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Errore nella gestione dei dati RFID: {ex.Message}");
+                _logger.LogError($"[HandleRfidData] Errore nella gestione del codice RFID: {ex.Message}");
+                return (false, $"Errore: {ex.Message}");
             }
         }
 
         private async Task SendRfidDataToApi(string rfidCode)
         {
-            using var client = new HttpClient();
-            client.BaseAddress = new Uri("http://localhost:5074/api/serial/rfid-tokens/verify");
-            var payload = new { RfidCode = rfidCode };
-
             try
             {
-                _logger.LogInformation($"Invio del codice RFID {rfidCode} al backend...");
-                var response = await client.PostAsJsonAsync("", payload);
+                using var client = new HttpClient();
+                var url = "http://localhost:5074/api/serial/rfid-tokens/verify";
+
+                var payload = new
+                {
+                    RfidCode = rfidCode
+                };
+
+                _logger.LogInformation($"[SendRfidDataToApi] Tentativo di invio POST: RFID={rfidCode}");
+                var response = await client.PostAsJsonAsync(url, payload);
 
                 if (response.IsSuccessStatusCode)
                 {
-                    var result = await response.Content.ReadAsStringAsync();
-                    _logger.LogInformation($"POST successo: {result}");
+                    _logger.LogInformation($"[SendRfidDataToApi] POST successo per RFID={rfidCode}");
                 }
                 else
                 {
-                    _logger.LogError($"Errore POST: {response.StatusCode}, {await response.Content.ReadAsStringAsync()}");
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    _logger.LogError($"[SendRfidDataToApi] Errore POST: StatusCode={response.StatusCode}, Messaggio={errorContent}");
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Errore durante la chiamata POST: {ex.Message}");
+                _logger.LogError($"[SendRfidDataToApi] Errore durante la chiamata POST: {ex.Message}");
             }
         }
 
         [HttpGet("ports")]
         public IActionResult GetAvailablePorts()
         {
+            _logger.LogInformation("[GetAvailablePorts] Recupero delle porte disponibili...");
             return Ok(_serialPortManager.GetAvailablePorts());
         }
 
         [HttpPost("rfid-tokens/verify")]
         public async Task<IActionResult> VerifyRfidToken([FromBody] RfidTokenRequest request)
         {
+            _logger.LogInformation($"[VerifyRfidToken] Verifica del token RFID: {request.RfidCode}");
+
             if (string.IsNullOrWhiteSpace(request.RfidCode))
             {
+                _logger.LogWarning("[VerifyRfidToken] RFID Code non valido");
                 return BadRequest(new { message = "RFID Code non valido" });
             }
 
-            using var context = await _contextFactory.CreateDbContextAsync();
-            var rfidToken = await context.RfidTokens
-                .FirstOrDefaultAsync(rt => rt.RfidCode == request.RfidCode);
-
-            if (rfidToken == null)
+            try
             {
-                return NotFound(new { message = "Token non trovato" });
+                using var context = await _contextFactory.CreateDbContextAsync();
+                var rfidToken = await context.RfidTokens
+                    .Include(rt => rt.User)
+                    .FirstOrDefaultAsync(rt => rt.RfidCode == request.RfidCode);
+
+                if (rfidToken == null)
+                {
+                    _logger.LogWarning("[VerifyRfidToken] Token non trovato");
+                    return NotFound(new { message = "Token non trovato" });
+                }
+
+                _logger.LogInformation("[VerifyRfidToken] Token verificato con successo");
+                return Ok(new
+                {
+                    message = "Token verificato",
+                    isActive = rfidToken.IsActive,
+                    userName = rfidToken.User?.Name ?? "Utente sconosciuto"
+                });
             }
-
-            return Ok(new
+            catch (Exception ex)
             {
-                message = "Token verificato",
-                isActive = rfidToken.IsActive
-            });
+                _logger.LogError($"[VerifyRfidToken] Errore durante la verifica del token RFID: {ex.Message}");
+                return StatusCode(500, new { message = "Errore interno del server" });
+            }
         }
 
         public class RfidTokenRequest
